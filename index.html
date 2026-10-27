@@ -1,0 +1,307 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FoodieHub - Food Ordering</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f7fb;
+      margin: 0;
+      color: #243047;
+    }
+    header {
+      background: #163b50;
+      color: white;
+      padding: 22px;
+      text-align: center;
+    }
+    main { max-width: 1000px; margin: 25px auto; padding: 16px; }
+    .panel {
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      margin-bottom: 22px;
+    }
+    input, select, button {
+      padding: 10px;
+      margin: 5px 3px;
+      border-radius: 5px;
+      border: 1px solid #ccd4df;
+    }
+    input { max-width: 95%; }
+    button { cursor: pointer; background: #087e8b; color: white; }
+    .delete { background: #c0392b; }
+    .edit { background: #285f9e; }
+    .item {
+      border-bottom: 1px solid #ddd;
+      padding: 12px 0;
+    }
+    .item button { margin-top: 6px; }
+    .muted { color: #667085; }
+    #message { font-weight: bold; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>FoodieHub</h1>
+  <p>Online Food Ordering and Menu Management</p>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>Add or Update Food Item</h2>
+    <form id="foodForm">
+      <input id="name" placeholder="Dish name" required>
+      <input id="price" type="number" min="0.01" step="0.01"
+             placeholder="Price (₹)" required>
+      <input id="category" placeholder="Category" required>
+      <select id="available">
+        <option value="true">Available</option>
+        <option value="false">Unavailable</option>
+      </select>
+      <button type="submit">Save Dish</button>
+      <button type="button" id="cancelEdit" hidden>Cancel Edit</button>
+    </form>
+    <p id="message" role="status"></p>
+  </section>
+
+  <section class="panel">
+    <h2>Food Menu</h2>
+    <div id="menu">Loading menu...</div>
+  </section>
+
+  <section class="panel">
+    <h2>Customer Orders</h2>
+    <form id="orderForm">
+      <input id="customer" placeholder="Customer name" required>
+      <input id="orderDish" placeholder="Dish ordered" required>
+      <input id="quantity" type="number" min="1" value="1" required>
+      <button type="submit">Add Order</button>
+    </form>
+    <div id="orders">Loading orders...</div>
+  </section>
+</main>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyDiz4M_DJmakbcxTcXR_HLJ5nuY5ySieQw",
+  authDomain: "food-ordering-app-b85f9.firebaseapp.com",
+  projectId: "food-ordering-app-b85f9",
+  storageBucket: "food-ordering-app-b85f9.firebasestorage.app",
+  messagingSenderId: "271391134209",
+  appId: "1:271391134209:web:742d8dbbf35a0adc63e600"
+};
+
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.firestore();
+
+  const menu = document.getElementById("menu");
+  const orders = document.getElementById("orders");
+  const form = document.getElementById("foodForm");
+  const message = document.getElementById("message");
+  let editingId = null;
+
+  // READ: display all food items
+  db.collection("foods").onSnapshot(snapshot => {
+    menu.replaceChildren();
+
+    if (snapshot.empty) {
+      menu.textContent = "No food items yet. Add your first dish!";
+      return;
+    }
+
+    snapshot.forEach(doc => {
+      const food = doc.data();
+      const item = document.createElement("div");
+      item.className = "item";
+
+      const title = document.createElement("strong");
+      title.textContent = food.name + " - ₹" + food.price;
+
+      const details = document.createElement("p");
+      details.textContent = food.category + " | " +
+        (food.available ? "Available" : "Unavailable");
+
+      const edit = document.createElement("button");
+      edit.className = "edit";
+      edit.textContent = "Edit";
+      edit.onclick = () => {
+        editingId = doc.id;
+        document.getElementById("name").value = food.name;
+        document.getElementById("price").value = food.price;
+        document.getElementById("category").value = food.category;
+        document.getElementById("available").value =
+          String(food.available);
+        document.getElementById("cancelEdit").hidden = false;
+        message.textContent = "Editing " + food.name;
+      };
+
+      const remove = document.createElement("button");
+      remove.className = "delete";
+      remove.textContent = "Delete";
+      remove.onclick = async () => {
+        if (confirm("Delete " + food.name + "?")) {
+          try {
+            await db.collection("foods").doc(doc.id).delete();
+            message.textContent = "Dish deleted.";
+          } catch (error) {
+            message.textContent = "Delete failed: " + error.message;
+          }
+        }
+      };
+
+      item.append(title, details, edit, remove);
+      menu.appendChild(item);
+    });
+  }, error => {
+    menu.textContent = "Could not load menu: " + error.message;
+  });
+
+  // CREATE and UPDATE food items
+  form.addEventListener("submit", async event => {
+    event.preventDefault();
+
+    const name = document.getElementById("name").value.trim();
+    const price = Number(document.getElementById("price").value);
+    const category = document.getElementById("category").value.trim();
+    const available =
+      document.getElementById("available").value === "true";
+
+    if (!name || !category || !Number.isFinite(price) || price <= 0) {
+      message.textContent = "Enter valid dish details.";
+      return;
+    }
+
+    const food = { name, price, category, available };
+
+    try {
+      if (editingId) {
+        await db.collection("foods").doc(editingId).update(food);
+        message.textContent = "Dish updated successfully.";
+      } else {
+        await db.collection("foods").add(food);
+        message.textContent = "Dish added successfully.";
+      }
+
+      form.reset();
+      editingId = null;
+      document.getElementById("cancelEdit").hidden = true;
+    } catch (error) {
+      message.textContent = "Save failed: " + error.message;
+    }
+  });
+
+  document.getElementById("cancelEdit").onclick = () => {
+    editingId = null;
+    form.reset();
+    document.getElementById("cancelEdit").hidden = true;
+    message.textContent = "Edit cancelled.";
+  };
+
+  // READ and display customer orders
+  db.collection("orders").onSnapshot(snapshot => {
+    orders.replaceChildren();
+
+    if (snapshot.empty) {
+      orders.textContent = "No orders yet.";
+      return;
+    }
+
+    snapshot.forEach(doc => {
+      const order = doc.data();
+      const item = document.createElement("div");
+      item.className = "item";
+
+      const details = document.createElement("p");
+      details.textContent = order.customer + " ordered " +
+        order.dish + " x " + order.quantity +
+        " | Status: " + order.status;
+
+      const status = document.createElement("select");
+      ["Placed", "Preparing", "Delivered", "Cancelled"].forEach(s => {
+        const option = document.createElement("option");
+        option.value = s;
+        option.textContent = s;
+        option.selected = s === order.status;
+        status.appendChild(option);
+      });
+
+      const update = document.createElement("button");
+      update.textContent = "Update Status";
+      update.onclick = async () => {
+        try {
+          await db.collection("orders").doc(doc.id)
+            .update({ status: status.value });
+        } catch (error) {
+          alert("Update failed: " + error.message);
+        }
+      };
+
+      const remove = document.createElement("button");
+      remove.textContent = "Delete Order";
+      remove.className = "delete";
+      remove.onclick = async () => {
+        if (confirm("Delete this order?")) {
+          try {
+            await db.collection("orders").doc(doc.id).delete();
+          } catch (error) {
+            alert("Delete failed: " + error.message);
+          }
+        }
+      };
+
+      item.append(details, status, update, remove);
+      orders.appendChild(item);
+    });
+  }, error => {
+    orders.textContent = "Could not load orders: " + error.message;
+  });
+
+  // CREATE customer orders
+  document.getElementById("orderForm").addEventListener(
+    "submit", async event => {
+      event.preventDefault();
+
+      const customer = document.getElementById("customer").value.trim();
+      const dish = document.getElementById("orderDish").value.trim();
+      const quantity = Number(document.getElementById("quantity").value);
+
+      if (!customer || !dish ||
+          !Number.isInteger(quantity) || quantity < 1) {
+        alert("Enter valid order details.");
+        return;
+      }
+
+      try {
+        await db.collection("orders").add({
+          customer,
+          dish,
+          quantity,
+          status: "Placed",
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        event.target.reset();
+      } catch (error) {
+        alert("Order creation failed: " + error.message);
+      }
+    }
+  );
+</script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
